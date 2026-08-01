@@ -364,6 +364,10 @@ module.exports = {
     token(prec(1, '<')),
     sep1(
       choice(
+        // `impl X<TState, +HasComponent<TState>>` — an impl's generic list
+        // is parsed as type arguments, so anonymous impl bounds must be
+        // accepted here as well as in type_parameters.
+        $.impl_bound_parameter,
         $._cairo_1_type,
         // $.type_binding,
         // $.lifetime,
@@ -404,6 +408,8 @@ module.exports = {
   _cairo_1_expression: $ => (choice(
     $.macro_invocation,
     $.array_expression,
+    $.for_expression,
+    $.range_expression,
     $.identifier,
     $._keyword_identifier,
     $.scoped_identifier,
@@ -576,7 +582,9 @@ module.exports = {
   remaining_field_pattern: _ => '..',
 
   _cairo_1_unary_expression: $ => prec(PREC.UNARY, seq(
-    choice('-', '*', '!', '~'),
+    // `@` is Cairo's snapshot operator (`@"text"`, `@self`); upstream
+    // omitted it from the unary set.
+    choice('-', '*', '!', '~', '@'),
     $._cairo_1_expression,
   )),
 
@@ -652,6 +660,22 @@ module.exports = {
   // Cairo 2.x fixed-size array literal: `[a, b]`, and the array TYPE
   // `[felt252; 2]`. Both are common in real contracts (Merkle proofs,
   // constant tables) and neither was supported upstream.
+  // `for i in 0..n { ... }` — Cairo 2.6 loop form.
+  for_expression: $ => prec.right(seq(
+    'for',
+    field('pattern', $._pattern),
+    'in',
+    field('value', $._cairo_1_expression),
+    field('body', $.block),
+  )),
+
+  // `0..n` / `start..end_index`
+  range_expression: $ => prec.left(seq(
+    $._cairo_1_expression,
+    '..',
+    optional($._cairo_1_expression),
+  )),
+
   array_expression: $ => seq(
     '[',
     optional(seq(
@@ -794,11 +818,23 @@ module.exports = {
 
   _literal: $ => choice(
     $.number,
+    $.string_literal,
   ),
 
   _literal_pattern: $ => choice(
     $.number,
+    $.string_literal,
   ),
+
+  // Cairo 2.x ByteArray literal: `"text"`. Distinct from the single-quoted
+  // short string (a felt252), and entirely absent from the upstream
+  // grammar even though real contracts use it constantly — for panic
+  // messages, `@"description"` snapshots and test assertions.
+  string_literal: _ => token(seq(
+    '"',
+    repeat(choice(/[^"\\]/, seq('\\', /./))),
+    '"',
+  )),
 
   _cairo_1_short_string: _ => token(seq(
     /'(.*?)'/,
