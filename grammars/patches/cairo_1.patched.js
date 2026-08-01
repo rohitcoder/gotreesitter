@@ -315,6 +315,7 @@ module.exports = {
   ),
 
   _cairo_1_type: $ => choice(
+    $.array_type,
     $._cairo_1_type_identifier,
     $.scoped_type_identifier,
     $.at_type,
@@ -402,6 +403,7 @@ module.exports = {
 
   _cairo_1_expression: $ => (choice(
     $.macro_invocation,
+    $.array_expression,
     $.identifier,
     $._keyword_identifier,
     $.scoped_identifier,
@@ -645,6 +647,27 @@ module.exports = {
     '(',
     $._cairo_1_expression,
     ')',
+  ),
+
+  // Cairo 2.x fixed-size array literal: `[a, b]`, and the array TYPE
+  // `[felt252; 2]`. Both are common in real contracts (Merkle proofs,
+  // constant tables) and neither was supported upstream.
+  array_expression: $ => seq(
+    '[',
+    optional(seq(
+      $._cairo_1_expression,
+      repeat(seq(',', $._cairo_1_expression)),
+      optional(','),
+    )),
+    ']',
+  ),
+
+  array_type: $ => seq(
+    '[',
+    $._cairo_1_type,
+    ';',
+    $._cairo_1_expression,
+    ']',
   ),
 
   _cairo_1_tuple_expression: $ => seq(
