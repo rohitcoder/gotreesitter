@@ -926,6 +926,10 @@ module.exports = grammar({
                     field('object', $._expression_term),
                     '.',
                     field('field', choice($.identifier, $.num_literal)),
+                    // Move 2024 macro-method syntax: `v.do!(|x| ...)`,
+                    // `xs.map_ref!(...)`. The `!` marks a macro invocation
+                    // and is otherwise an ordinary method call.
+                    optional('!'),
                     optional(field('arguments', $.arg_list))
                 )
             ),
