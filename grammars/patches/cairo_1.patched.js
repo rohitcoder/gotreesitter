@@ -229,6 +229,7 @@ module.exports = {
 
   _cairo_1_function_definition: $ => seq(
     optional($.visibility_modifier),
+    optional('const'),
     'fn',
     $.identifier,
     optional($.type_parameters),
@@ -441,6 +442,7 @@ module.exports = {
     // $.unsafe_block,
     // $.async_block,
     $.block,
+    alias($._cairo_1_if_let_expression, $.if_let_expression),
     alias($._cairo_1_if_expression, $.if_expression),
     $.match_expression,
     // $.while_expression,
@@ -453,6 +455,17 @@ module.exports = {
     prec.left(seq('return', $._cairo_1_expression)),
     prec(-1, 'return'),
   ),
+
+  // `if let PATTERN = expr { ... }` — Cairo 2.x conditional binding.
+  _cairo_1_if_let_expression: $ => prec.right(seq(
+    'if',
+    'let',
+    field('pattern', $._pattern),
+    '=',
+    field('value', $._cairo_1_expression),
+    field('consequence', $.block),
+    optional(field('alternative', alias($._cairo_1_else_clause, $.else_clause))),
+  )),
 
   _cairo_1_if_expression: $ => prec.right(seq(
     'if',
@@ -514,6 +527,7 @@ module.exports = {
   )),
 
   _pattern: $ => choice(
+    $.self,
     $._literal_pattern,
     alias(choice(...primitive_types), $.identifier),
     $.identifier,
@@ -537,7 +551,7 @@ module.exports = {
 
   tuple_pattern: $ => seq(
     '(',
-    commaSep($._pattern),
+    commaSep(choice(seq('mut', $._pattern), $._pattern)),
     optional(','),
     ')',
   ),
