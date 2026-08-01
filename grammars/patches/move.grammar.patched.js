@@ -320,6 +320,7 @@ module.exports = grammar({
                 repeat($._modifier),
                 'native',
                 repeat($._modifier),
+                optional('macro'),
                 'fun',
                 field('name', choice($.identifier, alias('for', $.identifier))),
                 optional(field('type_parameters', $.type_parameters)),
@@ -367,7 +368,8 @@ module.exports = grammar({
 
         function_parameters: $ => seq('(', commaSep($.function_parameter), ')'),
 
-        function_parameter: $ => seq(field('name', $.identifier), ':', field('type', $._type)),
+        function_parameter: $ =>
+            seq(optional('mut'), field('name', $.identifier), ':', field('type', $._type)),
 
         acquires_clause: $ => seq('acquires', commaSep1($.name_access_chain)),
 
@@ -1047,6 +1049,7 @@ module.exports = grammar({
 
         bind_var: $ =>
             choice(
+                seq('mut', $.identifier),
                 $.identifier,
                 // Contextual keywords that are valid as variable names in let bindings
                 alias('exists', $.identifier),
