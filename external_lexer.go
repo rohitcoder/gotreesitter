@@ -175,6 +175,38 @@ func (l *ExternalLexer) MarkEnd() {
 }
 
 // SetResultSymbol sets the token symbol to emit when Scan returns true.
+// PeekAt returns the rune n positions ahead of the current lookahead
+// without consuming anything. PeekAt(0) is the current lookahead.
+//
+// Needed by scanners that must distinguish two tokens sharing a prefix by
+// what follows them. DAML's type-annotation colon and its cons operator are
+// the case this exists for: `f : Int` and `x:xs` differ only in the
+// surrounding whitespace, and the parser offers both interpretations
+// simultaneously, so validSymbols cannot separate them.
+//
+// Returns 0 past the end of input.
+func (l *ExternalLexer) PeekAt(n int) rune {
+	if l == nil || n < 0 {
+		return 0
+	}
+	pos := l.pos
+	for i := 0; i < n; i++ {
+		if pos >= len(l.source) {
+			return 0
+		}
+		_, size := utf8.DecodeRune(l.source[pos:])
+		if size <= 0 {
+			return 0
+		}
+		pos += size
+	}
+	if pos >= len(l.source) {
+		return 0
+	}
+	r, _ := utf8.DecodeRune(l.source[pos:])
+	return r
+}
+
 // ResultSymbol returns the symbol the scanner most recently produced.
 //
 // Needed by scanners that delegate to another language's scanner and must

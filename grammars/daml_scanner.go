@@ -69,9 +69,15 @@ func (DamlExternalScanner) Deserialize(payload any, buf []byte) {
 	HaskellExternalScanner{}.Deserialize(payload, buf)
 }
 
-// Scan delegates to the Haskell scanner and rewrites the symbol it produced
-// into DAML's numbering.
+// Scan delegates to the Haskell scanner, declining the one classification
+// where DAML and Haskell genuinely disagree, then rewrites the resulting
+// symbol into DAML's numbering.
 func (s DamlExternalScanner) Scan(payload any, lexer *gotreesitter.ExternalLexer, validSymbols []bool) bool {
+	if damlIsTypeAnnotationColon(lexer) {
+		// Produce nothing and consume nothing. The grammar's own lexer then
+		// takes the colon as the type-annotation token it defines.
+		return false
+	}
 	if !s.inner.Scan(payload, lexer, validSymbols) {
 		return false
 	}
@@ -82,4 +88,67 @@ func (s DamlExternalScanner) Scan(payload any, lexer *gotreesitter.ExternalLexer
 		lexer.SetResultSymbol(mapped)
 	}
 	return true
+}
+
+// damlIsTypeAnnotationColon reports whether the lexer sits on a colon that
+// DAML uses to introduce a type rather than as an operator.
+//
+// This is the one place DAML and Haskell disagree about lexing. In Haskell
+// `:` is cons, so the shared scanner classifies any symbol beginning with a
+// colon as a constructor operator. In DAML it is the type-annotation
+// separator — `f : Int -> Int`, `party : Party` — and digital-asset/daml
+// contains 1847 single-colon signatures against zero double-colon ones.
+// Left to the Haskell classification, `f : Int -> Int` parses as an infix
+// expression with `->` stranded, which was 129 of the 771 failing files and
+// the largest single cause.
+//
+// The parser cannot decide this: at a type annotation it offers _consym and
+// the annotation colon simultaneously, so validSymbols contains both. The
+// distinction is in the source. DAML separates a type colon with spaces and
+// writes operators tight:
+//
+//	f : Int -> Int      annotation      ' : '
+//	x:xs                cons            ':'   no spaces
+//	a :| b              operator        ' :| ' colon is not alone
+//
+// So the test is a lone colon with whitespace on both sides. Anything
+// longer, or anything written tight, still reaches the Haskell scanner and
+// is still classified as Haskell would.
+func damlIsTypeAnnotationColon(lexer *gotreesitter.ExternalLexer) bool {
+	if lexer == nil {
+		return false
+	}
+	// The scanner is entered before leading whitespace is consumed, so the
+	// colon is generally not the current lookahead — for `f : Int` the
+	// scanner starts on the space after `f`. Skip forward over spaces the
+	// same way the scanner itself would, without consuming anything.
+	i := 0
+	for damlIsSpaceNoNewline(lexer.PeekAt(i)) {
+		i++
+		if i > 64 {
+			// Runaway guard: alignment padding is never this wide, and an
+			// unbounded scan here would be a per-token cost on every file.
+			return false
+		}
+	}
+	if lexer.PeekAt(i) != ':' {
+		return false
+	}
+	// What separates a type colon from cons is the space AFTER it, not
+	// before. Both spellings occur in real DAML — digital-asset/daml has
+	// 2437 `p : Party` and 838 `p: Party` — while cons is written tight on
+	// both sides (`x:xs`), of which the same corpus has none in a pattern.
+	// Requiring a leading space would therefore drop the 838.
+	//
+	// The colon must also stand alone: `::`, `:|` and `:+:` are operators
+	// and still reach the Haskell classification.
+	return damlIsSpace(lexer.PeekAt(i + 1))
+}
+
+func damlIsSpaceNoNewline(r rune) bool {
+	return r == ' ' || r == '\t'
+}
+
+func damlIsSpace(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 }
