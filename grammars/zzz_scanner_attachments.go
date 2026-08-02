@@ -129,6 +129,7 @@ func init() {
 		"svelte":          SvelteExternalScanner{},
 		"rst":             RstExternalScanner{},
 		"haskell":         HaskellExternalScanner{},
+		"daml":            DamlExternalScanner{},
 		"vhdl":            VhdlExternalScanner{},
 		"html":            HTMLExternalScanner{},
 		"yaml":            YamlExternalScanner{},

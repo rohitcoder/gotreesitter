@@ -267,6 +267,11 @@ type hsLookahead struct {
 }
 
 type hsState struct {
+	// damlDialect narrows one classification that Haskell and DAML genuinely
+	// disagree about. Set by DamlExternalScanner; false for Haskell, whose
+	// behaviour is therefore unchanged.
+	damlDialect bool
+
 	contexts  []hsContext
 	newline   hsNewline
 	lookahead hsLookahead
@@ -1913,6 +1918,37 @@ func (env *hsEnv) ctrStopOnToken(target string) int {
 	return hsCtrUndecided
 }
 
+// damlAnnotationColon reports whether the constraint lookahead has landed on
+// a DAML type-annotation colon rather than an infix data constructor.
+//
+// The lookahead scans forward from `=` for an operator that would make the
+// declaration infix. In Haskell any symbol starting with `:` qualifies. DAML's
+// record form puts a type annotation a few lines below:
+//
+//	data V = V with
+//	  t : Text
+//
+// The lookahead reaches that colon, reports an infix constructor, and the
+// parser commits to a branch where `with` cannot follow — which is why 101
+// files in digital-asset/daml failed on the most common way DAML declares a
+// record.
+//
+// The spelling separates the two unambiguously. Real infix data constructors
+// are multi-character and written tight against their operands;
+// digital-asset/daml contains exactly two, `:%` and `::`. A lone colon
+// followed by whitespace is a type annotation, and the same corpus has no
+// counter-example. Only that spelling is declined, so `:%`, `::` and `:|`
+// still classify as Haskell would.
+func (env *hsEnv) damlAnnotationColon() bool {
+	if env == nil || env.state == nil || !env.state.damlDialect {
+		return false
+	}
+	if env.peek0() != ':' {
+		return false
+	}
+	return hsIsSpaceChar(env.peek1()) || hsIsNewline(env.peek1())
+}
+
 func (env *hsEnv) ctrTop(next int) int {
 	switch next {
 	case hsLCArrow:
@@ -2020,7 +2056,7 @@ func (env *hsEnv) constraintLookahead() int {
 			state.context = true
 			done = true
 		case hsCtrInfixFound:
-			if env.char0(':') || env.char0('`') {
+			if (env.char0(':') || env.char0('`')) && !env.damlAnnotationColon() {
 				state.dataInfix = true
 			}
 			state.infix = true
@@ -2299,4 +2335,18 @@ func (HaskellExternalScanner) Scan(payload any, lexer *gotreesitter.ExternalLexe
 	state.lookahead.offset = 0
 	env := hsEnvNew(lexer, validSymbols, state)
 	return env.scan()
+}
+
+// haskellExternalSymbolIDs returns the symbol IDs this scanner emits, in
+// external-token index order.
+//
+// Exposed so a grammar that reuses this scanner can rebase its output onto
+// its own numbering. DAML's externals list is identical to Haskell's index
+// for index, but its symbol IDs differ by a constant offset, and a scanner
+// emitting the wrong IDs produces a parser that fails in ways that look like
+// grammar bugs rather than binding bugs.
+func haskellExternalSymbolIDs() []gotreesitter.Symbol {
+	out := make([]gotreesitter.Symbol, len(hsSymMap))
+	copy(out, hsSymMap[:])
+	return out
 }

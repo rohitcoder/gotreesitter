@@ -1832,19 +1832,41 @@ func extractLexStates(source string, g *ExtractedGrammar) error {
 	return nil
 }
 
+// resolveDimension reads a C array dimension that may be either a literal or a
+// #define'd macro name, returning the numeric value.
+func resolveDimension(tok, source string) (int, bool) {
+	if n, err := strconv.Atoi(tok); err == nil {
+		return n, true
+	}
+	re := regexp.MustCompile(`(?m)^#define\s+` + regexp.QuoteMeta(tok) + `\s+(\d+)`)
+	m := re.FindStringSubmatch(source)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	return n, err == nil
+}
+
 // extractReservedWords parses the ts_reserved_words[][] 2D array (ABI 15).
 // Returns nil (not error) if the array is not found (ABI < 15).
 func extractReservedWords(source string, g *ExtractedGrammar) error {
-	// Find the array declaration to extract dimensions.
-	dimRe := regexp.MustCompile(`ts_reserved_words\[(\d+)\]\[(\d+)\]`)
+	// Find the array declaration to extract dimensions. tree-sitter emits the
+	// second dimension as the macro MAX_RESERVED_WORD_SET_SIZE rather than a
+	// literal, so both dimensions are matched as arbitrary tokens and resolved
+	// through the #define table. Requiring `\d+` here silently misreads an
+	// ABI 15 grammar as pre-ABI-15: the per-state reserved_word_set_id values
+	// still load, but the word table stays empty and the lexer's
+	// `len(ReservedWords) > 0` guard skips the reserved-word check entirely,
+	// so reserved keywords lex as ordinary identifiers.
+	dimRe := regexp.MustCompile(`ts_reserved_words\[(\w+)\]\[(\w+)\]`)
 	dm := dimRe.FindStringSubmatch(source)
 	if dm == nil {
 		// Not an ABI 15 grammar — gracefully skip.
 		return nil
 	}
-	setCount, _ := strconv.Atoi(dm[1])
-	setSize, _ := strconv.Atoi(dm[2])
-	if setCount == 0 || setSize == 0 {
+	setCount, okCount := resolveDimension(dm[1], source)
+	setSize, okSize := resolveDimension(dm[2], source)
+	if !okCount || !okSize || setCount == 0 || setSize == 0 {
 		return nil
 	}
 	g.MaxReservedWordSetSize = setSize

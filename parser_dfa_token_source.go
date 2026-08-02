@@ -758,6 +758,36 @@ func (d *dfaTokenSource) preferGLRUnionDFAOverExternalToken(extTok Token, extEnd
 	dfaSupport := d.countGLRActionSupport(dfaTok.Symbol)
 	dfaSpecificity := tokenSymbolSpecificity(d.language, dfaTok.Symbol)
 	extSpecificity := tokenSymbolSpecificity(d.language, extTok.Symbol)
+
+	// A zero-width external token that closes a layout must not lose to a
+	// wider DFA token on support count alone.
+	//
+	// Support counts how many active GLR stacks have an action for a symbol,
+	// which is a reasonable tiebreak between two ordinary tokens but is
+	// systematically biased here: a layout terminator is by construction only
+	// valid on the one stack that is inside the layout, while the token it
+	// competes with is usually an anonymous extra (whitespace/newline) that
+	// every stack accepts. The extra therefore always out-supports it.
+	//
+	// Concretely, in Haskell/DAML `f = do\n  pure 1\n\nx = 1`, the scanner
+	// correctly emits `_cond_layout_end` at the dedent, but `_token1`
+	// (support 2 vs 1) wins, the `do` layout never closes, and the following
+	// binding is absorbed into the preceding application as another argument.
+	//
+	// Keep the external token when it is a named zero-width terminator and
+	// the DFA candidate is an unnamed extra: the parser can still reject it,
+	// but it is no longer discarded before it is ever offered.
+	if extTok.EndByte == extTok.StartByte &&
+		d.symbolIsNamed(extTok.Symbol) && !d.symbolIsNamed(dfaTok.Symbol) &&
+		dfaTok.EndByte > dfaTok.StartByte {
+		if DebugDFA.Load() {
+			fmt.Printf("  GLR ext/dfa keep external: zero-width named terminator vs unnamed extra ext=%s(%d) support=%d dfa=%s(%d) support=%d\n",
+				d.symbolName(extTok.Symbol), extTok.Symbol, extSupport,
+				d.symbolName(dfaTok.Symbol), dfaTok.Symbol, dfaSupport)
+		}
+		return Token{}, 0, 0, 0, false
+	}
+
 	if dfaSupport < extSupport {
 		if dfaSpecificity <= extSpecificity || !d.hasGLRActionSupportForBoth(dfaTok.Symbol, extTok.Symbol) {
 			if DebugDFA.Load() {
@@ -787,6 +817,19 @@ func (d *dfaTokenSource) preferGLRUnionDFAOverExternalToken(extTok Token, extEnd
 			d.symbolName(dfaTok.Symbol), dfaTok.Symbol, dfaTok.StartByte, dfaTok.EndByte, dfaEndPos, dfaEndRow, dfaEndCol, dfaSupport)
 	}
 	return dfaTok, dfaEndPos, dfaEndRow, dfaEndCol, true
+}
+
+// symbolIsNamed reports whether sym is a named (structural) symbol rather
+// than an anonymous token such as a keyword or an extra.
+func (d *dfaTokenSource) symbolIsNamed(sym Symbol) bool {
+	if d == nil || d.language == nil {
+		return false
+	}
+	idx := int(sym)
+	if idx < 0 || idx >= len(d.language.SymbolMetadata) {
+		return false
+	}
+	return d.language.SymbolMetadata[idx].Named
 }
 
 func (d *dfaTokenSource) countGLRActionSupport(sym Symbol) int {
@@ -4374,7 +4417,29 @@ func (d *dfaTokenSource) promoteKeyword(tok Token) (Token, bool) {
 						break
 					}
 					if d.language.ReservedWords[i] == kwTok.Symbol {
-						return tok, true // reserved - don't promote
+						// tree-sitter's C runtime promotes the keyword when
+						//
+						//	has_actions(state, kw) || is_reserved_word(state, kw)
+						//
+						// (lib/src/parser.c, keyword-capture branch of
+						// ts_parser__lex). Reserved-ness alone is enough there.
+						//
+						// Being stricter here and requiring an action keeps the
+						// port's existing contract — a reserved word with no
+						// action in this state stays the `word` token, which
+						// TestReservedWordBlocksPromotion asserts — while still
+						// promoting where the parser can actually shift the
+						// keyword. DAML's `data D = D with ...` needs exactly
+						// that: `with` is reserved AND has an action in the
+						// state holding the constructor, but the plain
+						// short-circuit refused it and the record declaration
+						// failed to parse.
+						if d.lookupActionIndex != nil && d.lookupActionIndex(d.state, kwTok.Symbol) != 0 {
+							kwTok.StartByte = tok.StartByte
+							kwTok.EndByte = tok.EndByte
+							return kwTok, false
+						}
+						return tok, true // reserved, and not shiftable here
 					}
 				}
 			}

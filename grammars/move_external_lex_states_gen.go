@@ -1,7 +1,7 @@
 //go:build !grammar_subset || grammar_subset_move
 
 // Code generated from tree-sitter parser.c; DO NOT EDIT.
-// Source: https://github.com/aptos-labs/tree-sitter-move-on-aptos 12906b341de7cef81cf03d7d91dae51d8a9299e7 src/parser.c
+// Source: parser.c
 
 package grammars
 

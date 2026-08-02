@@ -1,7 +1,7 @@
 //go:build !grammar_subset || grammar_subset_cairo
 
 // Code generated from tree-sitter parser.c; DO NOT EDIT.
-// Source: https://github.com/amaanq/tree-sitter-cairo 6238f609bea233040fe927858156dee5515a0745 src/parser.c
+// Source: parser.c
 
 package grammars
 
