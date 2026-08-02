@@ -18,8 +18,24 @@ module.exports = grammar({
     translation_unit: $ => repeat($._top_level_item),
 
     _top_level_item: $ => choice(
+      $.compiler_directive,
       $.function_definition,
       $.global_var_declarations
+    ),
+
+    // FunC compiler directives. `#pragma version =0.2.0;` and
+    // `#include "stdlib.fc";` appear at the top of most real contracts and
+    // were not in the 2022 grammar this is derived from, so any contract
+    // using them failed to parse at line 1.
+    compiler_directive: $ => seq(
+      choice('#pragma', '#include'),
+      repeat(choice(
+        $.identifier,
+        $.string_literal,
+        $.number_literal,
+        /[^;\n]/
+      )),
+      ';'
     ),
 
     global_var_declarations: $ => seq(
