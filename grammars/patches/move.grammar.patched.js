@@ -732,7 +732,9 @@ module.exports = grammar({
 
         return_expression: $ => prec.right(seq('return', optional($._expression))),
 
-        abort_expression: $ => prec.right(seq('abort', $._expression)),
+        // Move 2024 allows a bare `abort` with no code, as the final
+        // expression of a function that always fails.
+        abort_expression: $ => prec.right(seq('abort', optional($._expression))),
 
         break_expression: $ =>
             prec.right(seq('break', optional($.label_name), optional($._expression))),
