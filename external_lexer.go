@@ -175,6 +175,15 @@ func (l *ExternalLexer) MarkEnd() {
 }
 
 // SetResultSymbol sets the token symbol to emit when Scan returns true.
+// ResultSymbol returns the symbol the scanner most recently produced.
+//
+// Needed by scanners that delegate to another language's scanner and must
+// rewrite its result into their own symbol numbering — DAML reuses Haskell's
+// layout scanner this way.
+func (l *ExternalLexer) ResultSymbol() Symbol {
+	return l.resultSymbol
+}
+
 func (l *ExternalLexer) SetResultSymbol(sym Symbol) {
 	l.resultSymbol = sym
 	l.hasResult = true

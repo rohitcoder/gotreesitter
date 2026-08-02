@@ -2300,3 +2300,17 @@ func (HaskellExternalScanner) Scan(payload any, lexer *gotreesitter.ExternalLexe
 	env := hsEnvNew(lexer, validSymbols, state)
 	return env.scan()
 }
+
+// haskellExternalSymbolIDs returns the symbol IDs this scanner emits, in
+// external-token index order.
+//
+// Exposed so a grammar that reuses this scanner can rebase its output onto
+// its own numbering. DAML's externals list is identical to Haskell's index
+// for index, but its symbol IDs differ by a constant offset, and a scanner
+// emitting the wrong IDs produces a parser that fails in ways that look like
+// grammar bugs rather than binding bugs.
+func haskellExternalSymbolIDs() []gotreesitter.Symbol {
+	out := make([]gotreesitter.Symbol, len(hsSymMap))
+	copy(out, hsSymMap[:])
+	return out
+}
