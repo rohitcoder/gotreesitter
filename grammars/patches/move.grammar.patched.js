@@ -71,6 +71,11 @@ module.exports = grammar({
     supertypes: $ => [],
 
     conflicts: $ => [
+        // A block-form expression at the end of a block is either that
+        // block's value or a statement followed by an implicit unit value.
+        // Both parses are legitimate; GLR picks whichever completes.
+        [$._block_form_statement, $._expression],
+        [$._block_form_statement, $._expression_term],
         // 'exists' and 'forall' are both spec quantifier keywords and valid identifiers
         [$._leading_name_access, $.quantifier_expression],
         // name_access_chain followed by < is ambiguous: comparison (binary_expression)
@@ -1035,7 +1040,24 @@ module.exports = grammar({
                 '}'
             ),
 
-        _sequence_item: $ => seq(choice($._expression, $.let_expression), ';'),
+        // A block-form expression used as a statement takes no semicolon:
+        // `if (c) { .. } else { .. }` followed by another statement is valid
+        // Move. Requiring one made any function containing that shape fail
+        // to parse — aptos-core's multisig_account.move among them.
+        //
+        // This is genuinely ambiguous with a block's trailing value
+        // expression (`{ ...; if (c) { a } else { b } }` returns a value),
+        // so it is declared as a conflict and left to the GLR parser rather
+        // than forced with precedence, which is how this grammar already
+        // resolves its other ambiguities.
+        _sequence_item: $ =>
+            choice(
+                seq(choice($._expression, $.let_expression), ';'),
+                $._block_form_statement,
+            ),
+
+        _block_form_statement: $ =>
+            choice($.if_expression, $.while_expression, $.loop_expression, $.block),
 
         // ─── Let expressions ──────────────────────────────────────────────────────
 
