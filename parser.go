@@ -7835,6 +7835,10 @@ func csharpRepetitionShiftConflictChoice(lang *Language, tok Token, actions []Pa
 		if !csharpCanShiftDeclarationListRepetitionToken(lang, tok) {
 			return ParseAction{}, false
 		}
+	case "for_statement_conditions":
+		if !csharpCanShiftForStatementConditionsRepetitionToken(lang, tok) {
+			return ParseAction{}, false
+		}
 	default:
 		return ParseAction{}, false
 	}
@@ -8105,6 +8109,8 @@ func csharpRepeatConflictKind(name string) string {
 		return "block"
 	case strings.HasSuffix(name, "declaration_list_repeat1"):
 		return "declaration_list"
+	case strings.HasSuffix(name, "_for_statement_conditions_repeat1"):
+		return "for_statement_conditions"
 	default:
 		return ""
 	}
@@ -8138,6 +8144,59 @@ func csharpCanShiftDeclarationListRepetitionToken(lang *Language, tok Token) boo
 	default:
 		return false
 	}
+}
+
+// csharpCanShiftForStatementConditionsRepetitionToken gates the
+// _for_statement_conditions_repeat1 {shift-repetition, reduce} conflict to
+// its exact, narrow, provably-lossless shape.
+//
+// tree-sitter-c-sharp's LALR table construction merges states across
+// grammatically distinct commaSep1($.expression) list rules that happen to
+// produce identically-shaped reduce items — _for_statement_conditions'
+// initializer/update lists (`for (a, b; ...; c, d)`) and
+// initializer_expression's element list (`{ a, b, c }`, array/object/
+// collection initializers) both reduce a 2-child (list, ',', expr) repeat
+// over $.expression, so ts2go's extracted table surfaces one shared state
+// labelled after only one of its grammar origins
+// (_for_statement_conditions_repeat1) even when the live parse is inside an
+// initializer_expression, not a for-loop. Confirmed live via
+// AmbiguityProfile on real fixtures (see csharp_perf_test.go): state 6927
+// with lookahead ',' is hit 1136 times (forks=1136) parsing a single 60-
+// element array initializer, and equivalently for object initializers; a
+// real for-loop's own short condition/update lists barely touch this state.
+// This is the actual root cause of the GLR fork-explosion this fixes,
+// distinct from the earlier (and separately real) $.block/
+// $.initializer_expression dynamic-precedence ambiguity noted upstream —
+// that top-level choice forks once per block, not once per list element.
+//
+// Per cRepetitionSkipConflictChoice's documented C-semantics rule, exactly
+// one REDUCE plus exactly one repetition-marked SHIFT at a conflict is
+// always a lossless fold: whichever way the shift is taken, the same
+// post-reduce goto is reachable from the folded state on the same
+// lookahead, so both futures (continue the list vs. close it) survive
+// undiminished. That is language-independent and does not depend on this
+// specific repeat symbol's grammar origin. What is NOT safe is applying the
+// engine-wide fold (cRepetitionSkipConflictChoice) to c_sharp wholesale --
+// cRepetitionSkipOptOut["c_sharp"] documents a real regression
+// (DeployCommandTests.cs clean-to-ERROR flip) at some other C# state this
+// symbol-scoped gate never reaches, because unlike the global fold this
+// helper only fires when csharpRepeatConflictKind has already matched the
+// reduce's symbol name to this exact repeat auxiliary AND the lookahead is
+// the list-continuation comma -- the one token this state's REDUCE action
+// itself does not handle (see the } lookahead at the same state, which has
+// no conflict: only REDUCE). Restricting to lookahead ',' keeps this
+// helper's blast radius to exactly the shape validated above; unlike
+// csharpCanShiftBlockRepetitionToken/csharpCanShiftDeclarationListRepetitionToken
+// (which gate on which *identifier-like* token can legally start a new list
+// member), this repeat's members are the full $.expression grammar, so
+// enumerating "tokens that can start an expression" is impractical and
+// unnecessary -- the repetition-shift is lossless for any lookahead the
+// conflict actually offers, and profiling shows that lookahead is always ','.
+func csharpCanShiftForStatementConditionsRepetitionToken(lang *Language, tok Token) bool {
+	if int(tok.Symbol) >= len(lang.SymbolNames) {
+		return false
+	}
+	return lang.SymbolNames[tok.Symbol] == ","
 }
 
 func compactAcceptedStacks(stacks []glrStack) []glrStack {
